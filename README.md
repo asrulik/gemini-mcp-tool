@@ -141,6 +141,7 @@ These tools are designed to be used by the AI assistant.
   - **`prompt`** (required): The analysis request. Use the `@` syntax to include file or directory references (e.g., `@src/main.js explain this code`) or ask general questions (e.g., `Please use a web search to find the latest news stories`).
   - **`model`** (optional): The Gemini model to use. Defaults to `gemini-2.5-pro`.
   - **`sandbox`** (optional): Set to `true` to run in sandbox mode for safe code execution.
+  - **`includeDirectories`** (optional): Array of additional directories to expose to Gemini, forwarded as repeated `--include-directories` flags. Use for paths outside the MCP server's CWD (e.g. `/tmp/<bundle>`, sibling git worktrees). By default the Gemini CLI still honors `.gitignore` inside these directories; set `context.fileFiltering.respectGitIgnore: false` in `~/.gemini/settings.json` to disable that.
 - **`sandbox-test`**: Safely executes code or commands in Gemini's sandbox environment. Always runs in sandbox mode.
   - **`prompt`** (required): Code testing request (e.g., `Create and run a Python script that...` or `@script.py Run this safely`).
   - **`model`** (optional): The Gemini model to use.
