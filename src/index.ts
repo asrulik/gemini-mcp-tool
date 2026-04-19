@@ -43,6 +43,13 @@ const server = new Server(
 
 let isProcessing = false; let currentOperationName = ""; let latestOutput = "";
 
+// Tracks every notification that has been handed to the SDK but whose
+// underlying stdout write may not have drained yet. stopProgressUpdates
+// awaits all of these before the tool response is returned, preventing
+// progress events from arriving after the response (which would be
+// rejected by the client as "unknown token" and drop the transport).
+const pendingNotifications = new Set<Promise<void>>();
+
 async function sendNotification(method: string, params: any) {
   try {
     await server.notification({ method, params });
@@ -62,24 +69,29 @@ async function sendProgressNotification(
   progress: number,
   total?: number,
   message?: string
-) {
+): Promise<void> {
   if (!progressToken) return; // Only send if client requested progress
-  
+
+  const params: any = { progressToken, progress };
+  if (total !== undefined) params.total = total; // future cache progress
+  if (message) params.message = message;
+
+  const sendPromise = (async () => {
+    try {
+      await server.notification({
+        method: PROTOCOL.NOTIFICATIONS.PROGRESS,
+        params,
+      });
+    } catch (error) {
+      Logger.error("Failed to send progress notification:", error);
+    }
+  })();
+
+  pendingNotifications.add(sendPromise);
   try {
-    const params: any = {
-      progressToken,
-      progress
-    };
-    
-    if (total !== undefined) params.total = total; // future cache progress
-    if (message) params.message = message;
-    
-    await server.notification({
-      method: PROTOCOL.NOTIFICATIONS.PROGRESS,
-      params
-    });
-  } catch (error) {
-    Logger.error("Failed to send progress notification:", error);
+    await sendPromise;
+  } finally {
+    pendingNotifications.delete(sendPromise);
   }
 }
 
@@ -114,49 +126,45 @@ function startProgressUpdates(
   
   // Keep client alive with periodic updates
   const progressInterval = setInterval(async () => {
-    if (isProcessing && progressToken) {
-      // Simply increment progress value
-      progress += 1;
-      
-      // Include latest output if available
-      const baseMessage = progressMessages[messageIndex % progressMessages.length];
-      const outputPreview = latestOutput.slice(-150).trim(); // Last 150 chars
-      const message = outputPreview 
-        ? `${baseMessage}\n📝 Output: ...${outputPreview}`
-        : baseMessage;
-      
-      await sendProgressNotification(
-        progressToken,
-        progress,
-        undefined, // No total - indeterminate progress
-        message
-      );
-      messageIndex++;
-    } else if (!isProcessing) {
+    // Tool may have completed while this async tick was queued.
+    // stopProgressUpdates drains any send we do start, but skipping an
+    // unnecessary one is cheaper.
+    if (!isProcessing) {
       clearInterval(progressInterval);
+      return;
     }
+    if (!progressToken) return;
+
+    const baseMessage = progressMessages[messageIndex % progressMessages.length];
+    const outputPreview = latestOutput.slice(-150).trim();
+    const message = outputPreview
+      ? `${baseMessage}\n📝 Output: ...${outputPreview}`
+      : baseMessage;
+
+    progress += 1;
+    messageIndex++;
+
+    await sendProgressNotification(progressToken, progress, undefined, message);
   }, PROTOCOL.KEEPALIVE_INTERVAL); // Every 25 seconds
-  
+
   return { interval: progressInterval, progressToken };
 }
 
-function stopProgressUpdates(
-  progressData: { interval: NodeJS.Timeout; progressToken?: string | number },
-  success: boolean = true
-) {
-  const operationName = currentOperationName; // Store before clearing
+async function stopProgressUpdates(
+  progressData: { interval: NodeJS.Timeout; progressToken?: string | number }
+): Promise<void> {
   isProcessing = false;
   currentOperationName = "";
   clearInterval(progressData.interval);
-  
-  // Send final progress notification if client requested progress
-  if (progressData.progressToken) {
-    sendProgressNotification(
-      progressData.progressToken,
-      100,
-      100,
-      success ? `✅ ${operationName} completed successfully` : `❌ ${operationName} failed`
-    );
+
+  // Drain any progress notification whose stdout write may still be in
+  // flight. If one of these landed after the tool response, the client
+  // would log "progress notification for an unknown token" and drop the
+  // stdio transport. Waiting here guarantees the response is the last
+  // message the client sees for this token. No terminal "100%" is
+  // emitted — the tool response itself is the completion signal.
+  if (pendingNotifications.size > 0) {
+    await Promise.allSettled([...pendingNotifications]);
   }
 }
 
@@ -187,8 +195,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
         latestOutput = newOutput;
       });
 
-      // Stop progress updates
-      stopProgressUpdates(progressData, true);
+      // Stop progress updates (drains any in-flight notification before we return).
+      await stopProgressUpdates(progressData);
 
       return {
         content: [
@@ -200,9 +208,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
         isError: false,
       };
     } catch (error) {
-      // Stop progress updates on error
-      stopProgressUpdates(progressData, false);
-      
+      // Stop progress updates on error (drains in-flight notifications too).
+      await stopProgressUpdates(progressData);
+
       Logger.error(`Error in tool '${toolName}':`, error);
 
       const errorMessage =
