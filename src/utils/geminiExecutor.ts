@@ -17,7 +17,7 @@ import { cacheChunks, getChunks } from './chunkCache.js';
  * accept a comma-separated value, but paths may legitimately contain
  * commas; repeated flags avoid any splitting ambiguity.
  */
-function appendIncludeDirectoriesArgs(args: string[], includeDirectories?: string[]): void {
+export function appendIncludeDirectoriesArgs(args: string[], includeDirectories?: string[]): void {
   if (!includeDirectories || includeDirectories.length === 0) return;
   for (const dir of includeDirectories) {
     args.push(CLI.FLAGS.INCLUDE_DIRECTORIES, dir);
