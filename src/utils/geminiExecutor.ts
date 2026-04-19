@@ -12,12 +12,25 @@ import { formatChangeModeResponse, summarizeChangeModeEdits } from './changeMode
 import { chunkChangeModeEdits } from './changeModeChunker.js';
 import { cacheChunks, getChunks } from './chunkCache.js';
 
+/**
+ * Append --include-directories once per directory. The gemini CLI does
+ * accept a comma-separated value, but paths may legitimately contain
+ * commas; repeated flags avoid any splitting ambiguity.
+ */
+export function appendIncludeDirectoriesArgs(args: string[], includeDirectories?: string[]): void {
+  if (!includeDirectories || includeDirectories.length === 0) return;
+  for (const dir of includeDirectories) {
+    args.push(CLI.FLAGS.INCLUDE_DIRECTORIES, dir);
+  }
+}
+
 export async function executeGeminiCLI(
   prompt: string,
   model?: string,
   sandbox?: boolean,
   changeMode?: boolean,
-  onProgress?: (newOutput: string) => void
+  onProgress?: (newOutput: string) => void,
+  includeDirectories?: string[]
 ): Promise<string> {
   let prompt_processed = prompt;
   
@@ -87,15 +100,16 @@ ${prompt_processed}
     prompt_processed = changeModeInstructions;
   }
   
-  const args = [];
+  const args: string[] = [];
   if (model) { args.push(CLI.FLAGS.MODEL, model); }
   if (sandbox) { args.push(CLI.FLAGS.SANDBOX); }
-  
+  appendIncludeDirectoriesArgs(args, includeDirectories);
+
   // Ensure @ symbols work cross-platform by wrapping in quotes if needed
-  const finalPrompt = prompt_processed.includes('@') && !prompt_processed.startsWith('"') 
-    ? `"${prompt_processed}"` 
+  const finalPrompt = prompt_processed.includes('@') && !prompt_processed.startsWith('"')
+    ? `"${prompt_processed}"`
     : prompt_processed;
-    
+
   args.push(CLI.FLAGS.PROMPT, finalPrompt);
   
   try {
@@ -105,15 +119,16 @@ ${prompt_processed}
     if (errorMessage.includes(ERROR_MESSAGES.QUOTA_EXCEEDED) && model !== MODELS.FLASH) {
       Logger.warn(`${ERROR_MESSAGES.QUOTA_EXCEEDED}. Falling back to ${MODELS.FLASH}.`);
       await sendStatusMessage(STATUS_MESSAGES.FLASH_RETRY);
-      const fallbackArgs = [];
+      const fallbackArgs: string[] = [];
       fallbackArgs.push(CLI.FLAGS.MODEL, MODELS.FLASH);
       if (sandbox) {
         fallbackArgs.push(CLI.FLAGS.SANDBOX);
       }
-      
+      appendIncludeDirectoriesArgs(fallbackArgs, includeDirectories);
+
       // Same @ symbol handling for fallback
-      const fallbackPrompt = prompt_processed.includes('@') && !prompt_processed.startsWith('"') 
-        ? `"${prompt_processed}"` 
+      const fallbackPrompt = prompt_processed.includes('@') && !prompt_processed.startsWith('"')
+        ? `"${prompt_processed}"`
         : prompt_processed;
         
       fallbackArgs.push(CLI.FLAGS.PROMPT, fallbackPrompt);

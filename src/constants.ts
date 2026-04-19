@@ -70,6 +70,7 @@ export const CLI = {
     SANDBOX: "-s",
     PROMPT: "-p",
     HELP: "-help",
+    INCLUDE_DIRECTORIES: "--include-directories",
   },
   // Default values
   DEFAULTS: {
@@ -97,6 +98,8 @@ export interface ToolArguments {
   existingContext?: string; // Background information to build upon
   ideaCount?: number; // Target number of ideas to generate
   includeAnalysis?: boolean; // Include feasibility and impact analysis
-  
-  [key: string]: string | boolean | number | undefined; // Allow additional properties
+
+  includeDirectories?: string[]; // Extra directories to expose to the gemini CLI (--include-directories)
+
+  [key: string]: string | boolean | number | string[] | undefined; // Allow additional properties
 }
