@@ -14,7 +14,15 @@ const askGeminiArgsSchema = z.object({
   chunkIndex: z.union([z.number(), z.string()]).optional().describe("Which chunk to return (1-based)"),
   chunkCacheKey: z.string().optional().describe("Optional cache key for continuation"),
   includeDirectories: z
-    .array(z.string().min(1).max(1024))
+    .array(
+      z
+        .string()
+        .min(1)
+        .max(1024)
+        .refine((value) => value.trim().length > 0, {
+          message: "includeDirectories entries must not be blank",
+        })
+    )
     .min(1)
     .max(32)
     .optional()
