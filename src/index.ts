@@ -41,7 +41,7 @@ const server = new Server(
   },
 );
 
-let isProcessing = false; let currentOperationName = ""; let latestOutput = "";
+let isProcessing = false; let latestOutput = "";
 
 // Tracks every notification that has been handed to the SDK but whose
 // underlying stdout write may not have drained yet. stopProgressUpdates
@@ -70,7 +70,7 @@ async function sendProgressNotification(
   total?: number,
   message?: string
 ): Promise<void> {
-  if (!progressToken) return; // Only send if client requested progress
+  if (progressToken == null) return; // Only send if client requested progress
 
   const params: any = { progressToken, progress };
   if (total !== undefined) params.total = total; // future cache progress
@@ -100,7 +100,6 @@ function startProgressUpdates(
   progressToken?: string | number
 ) {
   isProcessing = true;
-  currentOperationName = operationName;
   latestOutput = ""; // Reset latest output
   
   const progressMessages = [
@@ -115,7 +114,7 @@ function startProgressUpdates(
   let progress = 0;
   
   // Send immediate acknowledgment if progress requested
-  if (progressToken) {
+  if (progressToken != null) {
     sendProgressNotification(
       progressToken,
       0,
@@ -133,7 +132,7 @@ function startProgressUpdates(
       clearInterval(progressInterval);
       return;
     }
-    if (!progressToken) return;
+    if (progressToken == null) return;
 
     const baseMessage = progressMessages[messageIndex % progressMessages.length];
     const outputPreview = latestOutput.slice(-150).trim();
@@ -154,7 +153,6 @@ async function stopProgressUpdates(
   progressData: { interval: NodeJS.Timeout; progressToken?: string | number }
 ): Promise<void> {
   isProcessing = false;
-  currentOperationName = "";
   clearInterval(progressData.interval);
 
   // Drain any progress notification whose stdout write may still be in
